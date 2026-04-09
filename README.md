@@ -2,7 +2,7 @@
 
 # Velpos
 
-**Package AI agents with identity, SOPs, and tools — on top of Claude Code.**
+**封装 AI Agent — 身份、SOP、工具集于一身，基于 Claude Code 构建。**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/)
@@ -16,270 +16,270 @@
 
 <br/>
 
-Velpos is a web console for [Claude Code](https://github.com/anthropics/claude-code) built on the [Agent SDK](https://github.com/anthropics/claude-code-sdk-python). Its core value is **agent packaging** — turning reusable AI assistants into configurable units that bundle **identity definition**, **plugin-powered SOPs**, and **tool access** behind a visual interface.
+Velpos 是一个基于 [Agent SDK](https://github.com/anthropics/claude-code-sdk-python) 构建的 [Claude Code](https://github.com/anthropics/claude-code) Web 控制台。其核心价值在于**Agent 封装**——将可复用的 AI 助手封装成可配置单元，在可视化界面背后整合**身份定义**、**插件驱动的 SOP** 和**工具访问**。
 
-This makes it much easier for **non-technical users** to build and operate multi-agent AI assistants — no hand-written prompts, no manual tool wiring, no fragile command chains.
-
-<br/>
-
-## Table of Contents
-
-- [Why Agent Packaging](#why-agent-packaging)
-- [Highlights](#highlights)
-- [Deployment](#deployment)
-  - [Development](#development)
-  - [Production](#production)
-- [First Run Setup](#first-run-setup)
-- [Usage Overview](#usage-overview)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Contributing](#contributing)
-- [License](#license)
+这让**非技术用户**能够更轻松地构建和运营多 Agent AI 助手——无需手写提示词、无需手动连接工具、无需脆弱的命令链。
 
 <br/>
 
-## Why Agent Packaging
+## 目录
 
-Most AI assistant setups break down because the real operating knowledge is scattered across prompts, tool permissions, plugin configs, and undocumented workflow habits.
+- [为什么需要 Agent 封装](#为什么需要-agent-封装)
+- [核心亮点](#核心亮点)
+- [部署](#部署)
+  - [开发环境](#开发环境)
+  - [生产环境](#生产环境)
+- [首次运行设置](#首次运行设置)
+- [使用概览](#使用概览)
+- [架构](#架构)
+- [技术栈](#技术栈)
+- [贡献指南](#贡献指南)
+- [许可证](#许可证)
 
-Velpos packages those moving parts into something reusable:
+<br/>
 
-| Layer | What it does |
+## 为什么需要 Agent 封装
+
+大多数 AI 助手设置最终都会崩溃，因为真正的运营知识分散在提示词、工具权限、插件配置和各种未文档化的工作流程习惯中。
+
+Velpos 将这些变动部件封装成可复用的形式：
+
+| 层级 | 功能 |
 |---|---|
-| **Identity** | Define what an agent is, what role it plays, and how it should behave |
-| **SOP** | Encode repeatable workflows so the agent follows a stable process — not ad-hoc prompting |
-| **Tools** | Expose the right capabilities through plugins — end users never assemble the toolchain |
-| **Reuse** | Apply the same packaged agent across projects, teams, and scenarios with less drift |
+| **身份** | 定义 Agent 是什么、扮演什么角色、应该如何行为 |
+| **SOP** | 编码可重复的工作流程，让 Agent 遵循稳定的过程——而非临时提示 |
+| **工具** | 通过插件暴露正确的能力——最终用户无需自行组装工具链 |
+| **复用** | 跨项目、团队和场景应用相同的封装 Agent，减少偏差 |
 
-This is especially useful for teams where the operators are **product owners, support staff, domain experts, or founders** — people who need outcomes, not prompt engineering.
-
-<br/>
-
-## Highlights
-
-### Agent Packaging
-
-- **Packaged agents** — bundle identity, role boundaries, and behavior expectations into a reusable unit
-- **Plugin-powered SOPs** — turn repeatable workflows into stable operating procedures through plugins
-- **Tool encapsulation** — hide low-level tool wiring so end users work at the task level
-- **Multi-agent collaboration** — combine packaged agents for specialized roles, handoffs, and team workflows
-
-### Platform Capabilities
-
-- **Project workspaces** — organize sessions by directory with isolated Claude Code working areas
-- **Streaming chat** — real-time WebSocket with Markdown rendering and code highlighting
-- **Built-in terminal** — run commands inside the current project directory
-- **Plugin management** — install / uninstall Claude Code MCP plugins
-- **Memory management** — edit `CLAUDE.md` and memory files from the UI
-- **Git management** — configure identity and SSH keys
-- **IM integrations** — connect Lark, WeChat, QQ, and OpenIM for two-way sync
-- **Channel profiles** — manage multiple API keys, hosts, and model mappings
-- **Settings center** — manage Claude Code core settings in one place
+这对于**产品负责人、支持人员、领域专家或创始人**——这些需要成果而非提示词工程的人——尤为有用。
 
 <br/>
 
-## Deployment
+## 核心亮点
+
+### Agent 封装
+
+- **封装式 Agent**——将身份、角色边界和行为期望捆绑成可复用单元
+- **插件驱动的 SOP**——通过插件将可重复的工作流程转化为稳定的操作程序
+- **工具封装**——隐藏底层工具连接，使最终用户在任务级别工作
+- **多 Agent 协作**——组合封装式 Agent，实现专业角色、交接和团队工作流程
+
+### 平台能力
+
+- **项目工作区**——按目录组织会话，拥有隔离的 Claude Code 工作区
+- **流式聊天**——实时 WebSocket，支持 Markdown 渲染和代码高亮
+- **内置终端**——在当前项目目录下运行命令
+- **插件管理**——安装/卸载 Claude Code MCP 插件
+- **记忆管理**——通过 UI 编辑 `CLAUDE.md` 和记忆文件
+- **Git 管理**——配置身份和 SSH 密钥
+- **IM 集成**——连接 Lark、微信、QQ、OpenIM 实现双向同步
+- **渠道配置**——管理多个 API 密钥、主机和模型映射
+- **设置中心**——在一处管理 Claude Code 核心设置
+
+<br/>
+
+## 部署
 
 ```bash
 git clone git@github.com:Jxin-Cai/velpos.git
 cd velpos
 ```
 
-### Development
+### 开发环境
 
-> Only MySQL runs in Docker. Backend and frontend run on the **host machine**, managing **host filesystem** paths directly.
+> 仅 MySQL 运行在 Docker 中。后端和前端运行在**宿主机**上，直接管理**宿主机文件系统**路径。
 
-**Prerequisites:** Node.js >= 18, Python >= 3.11, Docker, [uv](https://docs.astral.sh/uv/), Claude Code CLI (`claude` in PATH)
+**前置条件：** Node.js >= 18, Python >= 3.11, Docker, [uv](https://docs.astral.sh/uv/), Claude Code CLI (`claude` 在 PATH 中)
 
-**1. Configure**
+**1. 配置**
 
 ```bash
 cp build/dev/.env.example build/dev/.env
 ```
 
-All dev settings are in this single file. `CLAUDE_CLI_PATH` is **auto-detected** from your PATH at startup — no need to set it manually unless `claude` is installed in a non-standard location.
+所有开发设置都在这个文件中。`CLAUDE_CLI_PATH` 在启动时**自动检测**——无需手动设置，除非 `claude` 安装在非标准位置。
 
 <details>
 <summary><b>build/dev/.env</b></summary>
 
-| Variable | Default | Description |
+| 变量 | 默认值 | 描述 |
 |---|---|---|
-| `MYSQL_ROOT_PASSWORD` | `root123456` | MySQL root password |
-| `MYSQL_DATABASE` | `velpos` | Database name |
-| `MYSQL_HOST_PORT` | `3307` | MySQL port exposed to host |
-| `DATABASE_URL` | `mysql+aiomysql://root:root123456@localhost:3307/velpos` | Backend database connection (must match MySQL settings above) |
-| `BACKEND_PORT` | `8083` | Backend port |
-| `FRONTEND_PORT` | `3000` | Frontend port |
-| `CLAUDE_CLI_PATH` | *(auto-detected)* | Override only if `claude` is not in PATH |
-| `CLAUDE_PERMISSION_MODE` | `acceptEdits` | Default permission mode |
-| `DEFAULT_MODEL` | `claude-opus-4-6` | Default model |
-| `PROJECTS_ROOT_DIR` | `~/claude-projects` | Project root on the **host filesystem** |
-| `CORS_ALLOW_ORIGINS` | `*` | Allowed browser origins |
+| `MYSQL_ROOT_PASSWORD` | `root123456` | MySQL root 密码 |
+| `MYSQL_DATABASE` | `velpos` | 数据库名 |
+| `MYSQL_HOST_PORT` | `3307` | 暴露给宿主机的 MySQL 端口 |
+| `DATABASE_URL` | `mysql+aiomysql://root:root123456@localhost:3307/velpos` | 后端数据库连接（必须与上述 MySQL 设置匹配） |
+| `BACKEND_PORT` | `8083` | 后端端口 |
+| `FRONTEND_PORT` | `3000` | 前端端口 |
+| `CLAUDE_CLI_PATH` | *(自动检测)* | 仅在 `claude` 不在 PATH 中时覆盖 |
+| `CLAUDE_PERMISSION_MODE` | `acceptEdits` | 默认权限模式 |
+| `DEFAULT_MODEL` | `claude-opus-4-6` | 默认模型 |
+| `PROJECTS_ROOT_DIR` | `~/claude-projects` | **宿主机文件系统**上的项目根目录 |
+| `CORS_ALLOW_ORIGINS` | `*` | 允许的浏览器来源 |
 
 </details>
 
-**2. Start**
+**2. 启动**
 
 ```bash
 build/dev/start.sh start
 ```
 
-This will start MySQL (Docker), backend (`uv run uvicorn` on host), and frontend (`npm run dev` on host). Database migrations run automatically on backend startup.
+这将启动 MySQL（Docker）、后端（宿主机上的 `uv run uvicorn`）和前端（宿主机上的 `npm run dev`）。数据库迁移在后端启动时自动运行。
 
-| Service | URL |
+| 服务 | URL |
 |---|---|
-| Frontend | http://localhost:3000 |
-| API Docs | http://localhost:8083/docs |
+| 前端 | http://localhost:3000 |
+| API 文档 | http://localhost:8083/docs |
 
 <details>
-<summary><b>Service management</b></summary>
+<summary><b>服务管理</b></summary>
 
 ```bash
-build/dev/start.sh start     # Start all
-build/dev/start.sh stop      # Stop all
-build/dev/start.sh restart   # Restart all
-build/dev/start.sh status    # Show status
-build/dev/start.sh logs      # Tail backend logs
+build/dev/start.sh start     # 启动所有
+build/dev/start.sh stop      # 停止所有
+build/dev/start.sh restart   # 重启所有
+build/dev/start.sh status    # 显示状态
+build/dev/start.sh logs      # 跟踪后端日志
 ```
 
 </details>
 
-### Production
+### 生产环境
 
-> Everything runs in Docker (MySQL + backend + frontend/nginx). The backend manages files inside the **container**. A host directory is bind-mounted for project data persistence.
+> 所有服务运行在 Docker 中（MySQL + 后端 + 前端/nginx）。后端管理**容器内部**的文件。通过主机目录绑定挂载来持久化项目数据。
 
-**1. Configure**
+**1. 配置**
 
 ```bash
 cp build/prod/.env.example build/prod/.env
 ```
 
 <details>
-<summary><b>build/prod/.env — all-in-one configuration</b></summary>
+<summary><b>build/prod/.env — 一站式配置</b></summary>
 
-| Variable | Default | Description |
+| 变量 | 默认值 | 描述 |
 |---|---|---|
-| `MYSQL_ROOT_PASSWORD` | — | MySQL root password |
-| `MYSQL_DATABASE` | `velpos` | Database name |
-| `APP_PORT` | `80` | Public port exposed by nginx |
-| `PROJECTS_HOST_DIR` | `~/.agent_projects` | Host directory mounted into the container as `/data/projects` |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key |
-| `CLAUDE_PERMISSION_MODE` | `acceptEdits` | Default permission mode |
-| `DEFAULT_MODEL` | `claude-opus-4-6` | Default model |
+| `MYSQL_ROOT_PASSWORD` | — | MySQL root 密码 |
+| `MYSQL_DATABASE` | `velpos` | 数据库名 |
+| `APP_PORT` | `80` | nginx 暴露的公共端口 |
+| `PROJECTS_HOST_DIR` | `~/.agent_projects` | 挂载到容器内 `/data/projects` 的宿主机目录 |
+| `ANTHROPIC_API_KEY` | — | Anthropic API 密钥 |
+| `CLAUDE_PERMISSION_MODE` | `acceptEdits` | 默认权限模式 |
+| `DEFAULT_MODEL` | `claude-opus-4-6` | 默认模型 |
 
-The following are **auto-configured** by docker-compose and do not need to be set:
+以下由 docker-compose **自动配置**，无需设置：
 
-| Variable | Fixed value | Reason |
+| 变量 | 固定值 | 原因 |
 |---|---|---|
-| `DATABASE_URL` | `mysql+aiomysql://root:...@mysql:3306/velpos` | Inter-container networking |
-| `CLAUDE_CLI_PATH` | `/usr/local/bin/claude` | Installed in the backend image |
-| `PROJECTS_ROOT_DIR` | `/data/projects` | Container-internal mount point |
+| `DATABASE_URL` | `mysql+aiomysql://root:...@mysql:3306/velpos` | 容器间网络 |
+| `CLAUDE_CLI_PATH` | `/usr/local/bin/claude` | 安装在后端镜像中 |
+| `PROJECTS_ROOT_DIR` | `/data/projects` | 容器内部挂载点 |
 
 </details>
 
-**2. Build and start**
+**2. 构建并启动**
 
 ```bash
 cd build/prod
 docker compose up --build -d
 ```
 
-The stack includes MySQL, backend, and frontend (nginx). Access the UI at `http://localhost` (or the port you configured).
+包含 MySQL、后端和前端（nginx）。通过 `http://localhost`（或你配置的端口）访问 UI。
 
 <br/>
 
-## First Run Setup
+## 首次运行设置
 
-> **Important:** After starting services, you must configure settings in the web UI before Claude Code sessions work.
+> **重要：** 启动服务后，必须在 Web UI 中配置设置，Claude Code 会话才能工作。
 
-**1.** Click the **gear icon** in the top bar to open Settings.
+**1.** 点击顶部栏的**齿轮图标**打开设置。
 
-**2.** Create a **Channel Profile** (API endpoint + key + model mapping):
+**2.** 创建**渠道配置**（API 端点 + 密钥 + 模型映射）：
 
-&emsp;&emsp;Add Channel &#8594; fill Name, Host, API Key &#8594; Create &#8594; Activate
+&emsp;&emsp;添加渠道 &#8594; 填写名称、主机、API 密钥 &#8594; 创建 &#8594; 激活
 
-**3.** Review **Settings Configuration**:
+**3.** 查看**设置配置**：
 
 <details>
-<summary><b>Available settings</b></summary>
+<summary><b>可用设置</b></summary>
 
-| Setting | Description |
+| 设置 | 描述 |
 |---|---|
-| **Permission Mode** | Default / Accept Edits / Plan / Bypass |
-| **Completed Onboarding** | Skip onboarding UI |
-| **Effort Level** | Low / Medium / High reasoning effort |
-| **Skip Dangerous Mode Prompt** | Skip extra confirmation for bypass modes |
-| **Disable Non-Essential Traffic** | Disable non-core network traffic |
-| **Agent Teams** | Experimental multi-agent support |
-| **Tool Search** | Enable MCP tool search and dynamic loading |
-| **Attribution** | Configure attribution text for commits and PRs |
+| **Permission Mode** | 默认 / 接受编辑 / 计划 / 绕过 |
+| **Completed Onboarding** | 跳过入门 UI |
+| **Effort Level** | 低 / 中 / 高推理努力 |
+| **Skip Dangerous Mode Prompt** | 跳过绕过模式的额外确认 |
+| **Disable Non-Essential Traffic** | 禁用非核心网络流量 |
+| **Agent Teams** | 实验性多 Agent 支持 |
+| **Tool Search** | 启用 MCP 工具搜索和动态加载 |
+| **Attribution** | 配置提交和 PR 的归属文本 |
 
 </details>
 
-**4.** Create a project, create a session, **load your packaged agents**, and start working.
+**4.** 创建项目，创建会话，**加载你的封装 Agent**，开始工作。
 
 <br/>
 
-## Usage Overview
+## 使用概览
 
-| Area | What you can do |
+| 区域 | 可执行操作 |
 |---|---|
-| **Projects & Sessions** | Create projects from the sidebar, point each to a local directory, manage sessions |
-| **Chat** | Send prompts, paste/drag images, view streamed Markdown with code highlighting |
-| **Models & Permissions** | Switch models from the top bar, choose permission modes for autonomy control |
-| **Terminal** | Open the built-in terminal, run commands in the project directory |
-| **Plugins & Agents** | Install MCP plugins, load project-level packaged agents |
-| **Memory** | Edit `CLAUDE.md` and memory files directly in the UI |
-| **Git** | Manage global Git identity and SSH keys |
-| **IM Integration** | Bind sessions to **Lark**, **WeChat**, **QQ**, or **OpenIM** for two-way sync |
+| **项目与会话** | 从侧边栏创建项目，指向本地目录，管理会话 |
+| **聊天** | 发送提示词、粘贴/拖拽图片、查看带代码高亮的流式 Markdown |
+| **模型与权限** | 从顶部栏切换模型，选择权限模式以控制自主性 |
+| **终端** | 打开内置终端，在项目目录下运行命令 |
+| **插件与 Agent** | 安装 MCP 插件，加载项目级封装 Agent |
+| **记忆** | 直接在 UI 中编辑 `CLAUDE.md` 和记忆文件 |
+| **Git** | 管理全局 Git 身份和 SSH 密钥 |
+| **IM 集成** | 将会话绑定到 **Lark**、**微信**、**QQ** 或 **OpenIM** 实现双向同步 |
 
 <br/>
 
-## Architecture
+## 架构
 
 ```text
 velpos/
 ├── backend/                  # Python FastAPI
-│   ├── domain/               # Domain layer — pure business logic
-│   ├── application/          # Application services — use case orchestration
-│   ├── infr/                 # Infrastructure — repos, clients, adapters
-│   ├── ohs/                  # Open Host Service — REST + WebSocket
-│   └── alembic/              # Database migrations
+│   ├── domain/               # 领域层——纯业务逻辑
+│   ├── application/          # 应用服务——用例编排
+│   ├── infr/                 # 基础设施——仓库、客户端、适配器
+│   ├── ohs/                  # 开放主机服务——REST + WebSocket
+│   └── alembic/              # 数据库迁移
 ├── frontend/                 # Vue 3 + Vite
 │   └── src/
-│       ├── app/              # Shell, router, bootstrap
-│       ├── pages/            # Route-level pages
-│       ├── features/         # Isolated UI features
-│       ├── entities/         # Core business data
-│       └── shared/           # Utilities, HTTP/WS clients
+│       ├── app/              # 壳、路由、引导
+│       ├── pages/            # 路由级页面
+│       ├── features/         # 隔离的 UI 功能
+│       ├── entities/         # 核心业务数据
+│       └── shared/           # 工具、HTTP/WS 客户端
 └── build/
-    ├── dev/                  # Dev: Docker MySQL + host services
-    └── prod/                 # Prod: full Docker stack
+    ├── dev/                  # 开发：Docker MySQL + 宿主机服务
+    └── prod/                 # 生产：完整 Docker 栈
 ```
 
-The backend follows a **DDD four-layer** architecture. The frontend uses a **feature-sliced** structure.
+后端遵循**DDD 四层**架构。前端采用**特性切片**结构。
 
 <br/>
 
-## Tech Stack
+## 技术栈
 
-| Layer | Technologies |
+| 层级 | 技术 |
 |---|---|
-| Backend | Python, FastAPI, SQLAlchemy (async), Alembic, Claude Agent SDK, aiomysql |
-| Frontend | Vue 3, Vite, marked, highlight.js |
-| Database | MySQL 8 |
-| Package Mgmt | uv (backend), npm (frontend) |
+| 后端 | Python, FastAPI, SQLAlchemy (async), Alembic, Claude Agent SDK, aiomysql |
+| 前端 | Vue 3, Vite, marked, highlight.js |
+| 数据库 | MySQL 8 |
+| 包管理 | uv (后端), npm (前端) |
 
 <br/>
 
-## Contributing
+## 贡献指南
 
-Please read the [Code of Conduct](./CODE_OF_CONDUCT.md) before participating.
+参与之前请阅读[行为准则](./CODE_OF_CONDUCT.md)。
 
-If you plan to contribute significant changes, **open an issue first** to discuss direction and scope. We welcome bug reports, feature requests, and pull requests.
+如果你计划贡献重大变更，**请先提交 issue** 讨论方向和范围。我们欢迎错误报告、功能请求和拉取请求。
 
-## License
+## 许可证
 
-Licensed under the [Apache License 2.0](./LICENSE).
+根据 [Apache License 2.0](./LICENSE) 授权。
 
-Copyright 2026 jxin
+版权所有 2026 jxin
