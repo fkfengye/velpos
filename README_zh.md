@@ -89,7 +89,10 @@ cd velpos
 
 > 仅 MySQL 运行在 Docker 中。后端和前端运行在 **宿主机**，直接管理 **宿主机文件系统** 上的项目目录。
 
-**前置条件：** Node.js >= 18、Python >= 3.11、Docker、[uv](https://docs.astral.sh/uv/)、Claude Code CLI（`claude` 命令可用）
+**前置条件：**
+- **通用：** Node.js >= 18、Python >= 3.11、[uv](https://docs.astral.sh/uv/)、Claude Code CLI
+- **Windows：** PowerShell 5.1+（Windows 10/11 自带）、本地 MySQL（脚本启动前需已运行）
+- **macOS / Linux：** Docker（仅 MySQL）、[uv](https://docs.astral.sh/uv/)
 
 **1. 配置**
 
@@ -120,9 +123,10 @@ cp build/dev/.env.example build/dev/.env
 
 **2. 启动**
 
-```bash
-build/dev/start.sh start
-```
+| 操作系统 | 命令 |
+|---|---|
+| Windows (PowerShell) | `.\build\dev\start-win.ps1 start` |
+| macOS / Linux / Git Bash / WSL | `build/dev/start.sh start` |
 
 脚本会启动 MySQL（Docker）、后端（宿主机 `uv run uvicorn`）和前端（宿主机 `npm run dev`）。数据库迁移在后端启动时自动执行。
 
@@ -134,6 +138,16 @@ build/dev/start.sh start
 <details>
 <summary><b>服务管理</b></summary>
 
+**Windows (PowerShell)**
+```powershell
+.\build\dev\start-win.ps1 start     # 启动全部
+.\build\dev\start-win.ps1 stop      # 停止全部
+.\build\dev\start-win.ps1 restart   # 重启全部
+.\build\dev\start-win.ps1 status    # 查看状态
+.\build\dev\start-win.ps1 logs      # 查看后端日志
+```
+
+**macOS / Linux / Git Bash / WSL**
 ```bash
 build/dev/start.sh start     # 启动全部
 build/dev/start.sh stop      # 停止全部

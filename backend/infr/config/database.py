@@ -3,6 +3,10 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 
+import pymysql
+
+pymysql.install_as_MySQLdb()
+
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncSession,

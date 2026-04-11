@@ -148,6 +148,17 @@ function do_start {
         exit 1
     }
 
+    # Auto-detect CLAUDE_CLI_PATH if not set
+    if ([string]::IsNullOrEmpty($env:CLAUDE_CLI_PATH)) {
+        $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
+        if ($claudeCmd) {
+            $env:CLAUDE_CLI_PATH = $claudeCmd.Source
+            Write-Info "Auto-detected CLAUDE_CLI_PATH: $($env:CLAUDE_CLI_PATH)"
+        } else {
+            Write-Warn "claude CLI not found in PATH. Set CLAUDE_CLI_PATH in .env if needed."
+        }
+    }
+
     # Start backend
     $existingBackend = Get-Process-By-Port $backendPort
     if ($existingBackend) {
@@ -162,17 +173,15 @@ function do_start {
             exit 1
         }
 
-        $proc = Start-Process -FilePath "uv" `
+        Start-Process -FilePath "uv" `
             -ArgumentList "run uvicorn main:app --host 0.0.0.0 --port $backendPort --reload --log-level info" `
             -WorkingDirectory $backendDir `
             -NoNewWindow `
-            -PassThru `
-            -RedirectStandardOutput $backendLog `
-            -RedirectStandardError $backendLog
+            -PassThru | Out-Null
 
-        Write-Info "Backend starting (PID: $proc.Id)..."
+        Write-Info "Backend starting..."
 
-        if (Test-Port $backendPort 30) {
+        if (Test-Port $backendPort 60) {
             Write-Ok "Backend started -> http://localhost:$backendPort"
         } else {
             Write-Err "Backend failed to start. Check logs: $backendLog"
@@ -187,13 +196,9 @@ function do_start {
     } else {
         Write-Info "Starting frontend on port $frontendPort..."
 
-        Start-Process -FilePath "npm" `
-            -ArgumentList "run dev -- --host 0.0.0.0" `
-            -WorkingDirectory $frontendDir `
-            -NoNewWindow `
-            -PassThru `
-            -RedirectStandardOutput $frontendLog `
-            -RedirectStandardError $frontendLog | Out-Null
+        # Start frontend: redirect all output to log file
+        $cmd = "npm run dev -- --host 0.0.0.0 2>&1 >> `"$frontendLog`""
+        Start-Process -FilePath "cmd" -ArgumentList "/c", $cmd -WorkingDirectory $frontendDir -NoNewWindow
 
         # Wait for frontend
         Start-Sleep 5
