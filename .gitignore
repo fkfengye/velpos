@@ -1,13 +1,13 @@
 # 忽略现有内容
 ../claude-cookbooks/
-docs/
+#docs/
 ../jiaxin/
 
 # IDE
 .idea/
 .vscode/
 *.iml
-.claude
+#.claude
 
 # OS
 .DS_Store
