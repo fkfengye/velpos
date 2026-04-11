@@ -196,9 +196,11 @@ function do_start {
     } else {
         Write-Info "Starting frontend on port $frontendPort..."
 
-        # Start frontend: redirect all output to log file
-        $cmd = "npm run dev -- --host 0.0.0.0 2>&1 >> `"$frontendLog`""
-        Start-Process -FilePath "cmd" -ArgumentList "/c", $cmd -WorkingDirectory $frontendDir -NoNewWindow
+        # Start frontend: use cmd /c with npm (npm is a .cmd batch file, not executable)
+        Start-Process -FilePath "cmd" `
+            -ArgumentList "/c npm run dev -- --host 0.0.0.0" `
+            -WorkingDirectory $frontendDir `
+            -NoNewWindow
 
         # Wait for frontend
         Start-Sleep 5
