@@ -12,6 +12,7 @@ from typing import Annotated
 
 from application.session.command.run_query_command import RunQueryCommand
 from application.session.session_application_service import SessionApplicationService
+from domain.shared.async_utils import safe_create_task
 from infr.client.connection_manager import ConnectionManager
 from infr.client.claude_agent_gateway import ClaudeAgentGateway as ClaudeAgentGatewayImpl
 from ohs.assembler.session_assembler import SessionAssembler
@@ -107,9 +108,26 @@ async def websocket_endpoint(
             "messages": all_messages,
         })
 
+        # Replay pending permission/choice request if query is waiting for user input
+        pending_ctx = await gateway.get_pending_request_context(session_id)
+        if pending_ctx:
+            tool_name = pending_ctx.get("tool_name", "")
+            if tool_name == "AskUserQuestion":
+                await websocket.send_json({
+                    "event": "user_choice_request",
+                    "tool_name": tool_name,
+                    "questions": pending_ctx.get("questions", []),
+                })
+            else:
+                await websocket.send_json({
+                    "event": "permission_request",
+                    "tool_name": tool_name,
+                    "tool_input": pending_ctx.get("tool_input", ""),
+                })
+
         # Pre-warm SDK connection in background so first query is faster
         if session.sdk_session_id and not service.is_agent_connected(session_id):
-            asyncio.create_task(service.prewarm_connection(session_id))
+            safe_create_task(service.prewarm_connection(session_id))
 
         while True:
             data = await websocket.receive_json()
@@ -126,8 +144,8 @@ async def websocket_endpoint(
                         "event": "error",
                         "message": "Cannot send prompts to listener session",
                     })
-                elif prompt and not current_session.is_running:
-                    # Save images to temp files if present
+                elif prompt:
+                    # Save images to temp files if present (before running check)
                     image_paths = []
                     for img in images:
                         try:
@@ -150,30 +168,30 @@ async def websocket_endpoint(
                         prompt=prompt,
                         image_paths=image_paths,
                     )
-                    task = asyncio.create_task(service.run_claude_query(command))
-                    task.add_done_callback(
-                        lambda t: t.exception() and logger.error(
-                            "run_claude_query task crashed: %s", t.exception()
-                        ) if not t.cancelled() and t.exception() else None
-                    )
-                elif current_session.is_running:
-                    await websocket.send_json({
-                        "event": "error",
-                        "message": "Session is already running",
-                    })
+
+                    if not current_session.is_running:
+                        task = asyncio.create_task(service.run_claude_query(command))
+                        task.add_done_callback(
+                            lambda t: t.exception() and logger.error(
+                                "run_claude_query task crashed: %s", t.exception()
+                            ) if not t.cancelled() and t.exception() else None
+                        )
+                    else:
+                        # Queue for after current query completes (latest-wins)
+                        service.queue_message(session_id, command)
+                        await websocket.send_json({
+                            "event": "message_queued",
+                            "prompt": prompt,
+                        })
 
             elif action == "cancel":
                 try:
-                    # Fire interrupt asynchronously — don't await it to keep WS responsive
-                    asyncio.create_task(service.cancel_query(session_id))
-                    # Immediately signal the UI that cancellation is in progress
-                    await websocket.send_json({
-                        "event": "status_change",
-                        "status": "idle",
-                    })
+                    # Run cancel in background — cancel_query handles rewind + broadcast
+                    safe_create_task(service.cancel_query(session_id))
+                    # Immediately signal cancellation is in progress
                     await websocket.send_json({
                         "event": "info",
-                        "message": "Interrupt signal sent",
+                        "message": "Cancelling...",
                     })
                 except Exception as e:
                     await websocket.send_json({

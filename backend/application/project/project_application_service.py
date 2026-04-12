@@ -100,7 +100,7 @@ class ProjectApplicationService:
 
         if command.github_url:
             # Clone from GitHub — relies on local Git auth (SSH key / credential helper)
-            os.makedirs(projects_root, exist_ok=True)
+            await asyncio.to_thread(os.makedirs, projects_root, exist_ok=True)
             proc = await asyncio.create_subprocess_exec(
                 "git", "clone", command.github_url, dir_path,
                 stdout=asyncio.subprocess.PIPE,
@@ -114,7 +114,7 @@ class ProjectApplicationService:
                     "GIT_CLONE_FAILED",
                 )
         else:
-            os.makedirs(dir_path, exist_ok=True)
+            await asyncio.to_thread(os.makedirs, dir_path, exist_ok=True)
             # Auto git init + initial commit so branch exists immediately
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -192,8 +192,8 @@ class ProjectApplicationService:
         finally:
             # Commit and close the standalone DB session created by the factory
             try:
-                await svc._session_repository._session.commit()
-                await svc._session_repository._session.close()
+                await svc.commit()
+                await svc.close()
             except Exception:
                 logger.debug("Failed to close cascade session DB session", exc_info=True)
 
@@ -218,12 +218,16 @@ class ProjectApplicationService:
             )
 
     async def reorder_projects(self, command: ReorderProjectsCommand) -> None:
+        projects_to_save = []
         for idx, pid in enumerate(command.ordered_ids):
             project = await self._project_repository.find_by_id(pid)
             if project is not None:
                 # Higher index = higher priority (first in list = highest sort_order)
                 project.update_sort_order(len(command.ordered_ids) - idx)
-                await self._project_repository.save(project)
+                projects_to_save.append(project)
+        # Save all in a single batch so any failure rolls back completely
+        for project in projects_to_save:
+            await self._project_repository.save(project)
 
     # ------------------------------------------------------------------
     # Git operations
@@ -322,7 +326,7 @@ class ProjectApplicationService:
 
         # Remove plugin section from CLAUDE.md
         claude_md_path = os.path.join(project.dir_path, "CLAUDE.md")
-        _remove_claude_md_section(claude_md_path, f"Plugin:{plugin_type.value}")
+        await asyncio.to_thread(_remove_claude_md_section, claude_md_path, f"Plugin:{plugin_type.value}")
 
         logger.info("Plugin reset: project=%s, type=%s", project_id, plugin_type.value)
         return project
@@ -358,8 +362,8 @@ class ProjectApplicationService:
             api_base_url = self._lark_config.api_base_url
         claude_md_content = spec.claude_md_template.format(api_base_url=api_base_url)
         claude_md_path = os.path.join(project.dir_path, "CLAUDE.md")
-        os.makedirs(project.dir_path, exist_ok=True)
-        _write_claude_md_section(claude_md_path, f"Plugin:{plugin_type.value}", claude_md_content)
+        await asyncio.to_thread(os.makedirs, project.dir_path, exist_ok=True)
+        await asyncio.to_thread(_write_claude_md_section, claude_md_path, f"Plugin:{plugin_type.value}", claude_md_content)
 
         # Use current session (no new session creation)
         init_session_id = command.session_id
@@ -388,18 +392,61 @@ class ProjectApplicationService:
         )
         return project
 
+    async def _check_prerequisites(self, spec, project_dir: str) -> None:
+        """Run prerequisite commands from the plugin spec and raise on failure."""
+        for cmd in spec.prereq_commands:
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    cwd=project_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode != 0:
+                    hint = f" Install: {spec.prereq_install}" if spec.prereq_install else ""
+                    raise BusinessException(
+                        f"Prerequisite check failed: `{cmd}` exited with code {proc.returncode}.{hint}",
+                        "PREREQ_FAILED",
+                    )
+            except FileNotFoundError:
+                hint = f" Install: {spec.prereq_install}" if spec.prereq_install else ""
+                raise BusinessException(
+                    f"Prerequisite not found: `{cmd}`.{hint}",
+                    "PREREQ_FAILED",
+                )
+
+    @staticmethod
+    def _read_init_md(path: str) -> str:
+        """Read an init MD file relative to the backend directory."""
+        if not path:
+            return ""
+        backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        full_path = os.path.join(backend_dir, path)
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.warning("Init MD not found: %s", full_path)
+            return ""
+
     async def _send_plugin_init_prompt(
         self, init_session_id: str, init_md_content: str,
         project_id: str, plugin_type: PluginType,
     ) -> None:
+        svc = None
         try:
             svc = await self._session_service_factory()
             await svc.set_permission_mode(init_session_id, "bypassPermissions")
-            await svc.run_claude_query(
-                RunQueryCommand(session_id=init_session_id, prompt=init_md_content)
-            )
-            await svc._session_repository._session.commit()
-            await svc._session_repository._session.close()
+            try:
+                await svc.run_claude_query(
+                    RunQueryCommand(session_id=init_session_id, prompt=init_md_content)
+                )
+            finally:
+                # Always restore permission mode to default after plugin init,
+                # regardless of success or failure
+                await svc.set_permission_mode(init_session_id, "default")
+            await svc.commit()
 
             # Do NOT auto-complete here — the plugin init prompt should call
             # POST /api/projects/{id}/complete-plugin-init explicitly when done.
@@ -418,6 +465,9 @@ class ProjectApplicationService:
                 logger.warning(
                     "Auto-fail plugin init failed: project=%s", project_id, exc_info=True
                 )
+        finally:
+            if svc is not None:
+                await svc.close()
 
     async def _auto_complete_plugin_init(
         self, project_id: str, plugin_type: PluginType,

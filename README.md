@@ -95,6 +95,30 @@ cd velpos
 - **macOS / Linux:** Docker (for MySQL only), [uv](https://docs.astral.sh/uv/)
 
 **1. 配置**
+<details>
+<summary><b>Install prerequisites</b></summary>
+
+```bash
+# Docker — https://docs.docker.com/get-docker/
+
+# Python >= 3.11 — https://www.python.org/downloads/
+python3 --version
+
+# uv (Python package manager)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Node.js >= 18 — https://nodejs.org/
+node -v && npm -v
+
+# Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+```
+
+The startup script will automatically check all prerequisites and display install instructions for anything missing.
+
+</details>
+
+**1. Configure**
 
 ```bash
 cp build/dev/.env.example build/dev/.env

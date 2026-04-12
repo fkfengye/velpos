@@ -22,6 +22,7 @@ const {
   updateSession,
   setMessages,
   setStatus,
+  setQueued,
   setError,
   addMessage,
   reset,
@@ -189,7 +190,7 @@ function connectToSession(sessionId, oldSessionId) {
   wsConnection.value = connection
 
   connection.onEvent((data) => {
-    const sess = sessions.value.find(s => s.session_id === currentSessionId.value)
+    const sess = sessions.value.find(s => s.session_id === sessionId)
     const proj = sess?.project_id
       ? projects.value.find(p => p.id === sess.project_id)
       : null
@@ -219,7 +220,7 @@ function connectToSession(sessionId, oldSessionId) {
         if (data.data && data.data.type === 'result') {
           markDone(sessionId)
           addNotification({
-            sessionId: currentSessionId.value,
+            sessionId: sessionId,
             sessionName: sess?.name || session.value?.name || '',
             projectName: proj?.name || '',
           })
@@ -240,7 +241,20 @@ function connectToSession(sessionId, oldSessionId) {
         setError(data.message)
         break
 
+      case 'ws_disconnected':
+        // WS connection dropped — if we thought we were running, mark as
+        // reconnecting so the UI doesn't show a stale spinner forever.
+        // The actual authoritative status comes from the next 'connected' event.
+        if (status.value === 'running') {
+          setStatus('reconnecting')
+        }
+        break
+
       case 'info':
+        break
+
+      case 'message_queued':
+        setQueued(true)
         break
 
       case 'user_choice_request':
@@ -253,7 +267,7 @@ function connectToSession(sessionId, oldSessionId) {
           },
         })
         addNotification({
-          sessionId: currentSessionId.value,
+          sessionId: sessionId,
           sessionName: sess?.name || session.value?.name || '',
           projectName: proj?.name || '',
           type: 'auth_required',
@@ -270,7 +284,7 @@ function connectToSession(sessionId, oldSessionId) {
           },
         })
         addNotification({
-          sessionId: currentSessionId.value,
+          sessionId: sessionId,
           sessionName: sess?.name || session.value?.name || '',
           projectName: proj?.name || '',
           type: 'auth_required',
@@ -282,6 +296,19 @@ function connectToSession(sessionId, oldSessionId) {
         resetImState()
         fetchImStatus(sessionId)
         fetchImChannels()
+        break
+
+      case 'cancel_rewind':
+        // Cancel completed: restore session state and prompt
+        updateSession(data.session)
+        if (data.messages) setMessages(data.messages, data.session)
+        setStatus(data.session.status || 'idle')
+        updateSessionInList(sessionId, data.session)
+        markDone(sessionId)
+        // Emit event to restore prompt to input box
+        window.dispatchEvent(new CustomEvent('vp-cancel-rewind', {
+          detail: { prompt: data.prompt || '' },
+        }))
         break
 
       case 'status':

@@ -48,6 +48,10 @@ class SessionApplicationService:
         self._on_user_message = on_user_message
         self._project_repository = project_repository
         self._im_unbind_fn = im_unbind_fn
+        # Latest-wins queue: at most one pending message per session
+        self._queued_messages: dict[str, RunQueryCommand] = {}
+        # Tracks sessions that have been cancelled (to prevent retry in run_claude_query)
+        self._cancelled_sessions: set[str] = set()
 
     @staticmethod
     def _session_to_dict(session: Session) -> dict[str, Any]:
@@ -203,9 +207,11 @@ class SessionApplicationService:
                         new_sdk_sid = sdk_sid
 
                 session.clear_context()
-                # Restore sdk_session_id — connection stays alive after /clear
-                if new_sdk_sid:
-                    session.update_sdk_session_id(new_sdk_sid)
+                # Restore sdk_session_id — connection stays alive after /clear.
+                # Prefer the sid from /clear response; fall back to gateway cache.
+                restored_sid = new_sdk_sid or self._claude_agent_gateway.get_cached_sdk_session_id(command.session_id)
+                if restored_sid:
+                    session.update_sdk_session_id(restored_sid)
                 # Write back last_input_tokens from the /clear response so
                 # the frontend context bar reflects the post-clear state.
                 if clear_input_tokens > 0:
@@ -343,6 +349,13 @@ class SessionApplicationService:
             try:
                 await self._consume_message_stream(session, msg_stream)
             except Exception as stream_err:
+                # If cancelled, don't retry — let cancel_query handle cleanup
+                if command.session_id in self._cancelled_sessions:
+                    logger.info(
+                        "[session=%s] 消息流因取消而中断, 跳过重试",
+                        command.session_id,
+                    )
+                    return
                 # If send_query's stream fails mid-iteration (e.g. dead CLI process),
                 # fall back to a fresh connect
                 if is_connected:
@@ -363,6 +376,11 @@ class SessionApplicationService:
                 else:
                     raise
 
+            # If cancelled during stream consumption, skip normal completion
+            if command.session_id in self._cancelled_sessions:
+                logger.info("[session=%s] 查询被取消, 跳过正常完成流程", command.session_id)
+                return
+
             session.complete_query()
 
             # Fire outbound IM sync in background (only for web UI path)
@@ -380,6 +398,10 @@ class SessionApplicationService:
             )
 
         except Exception as e:
+            # If cancelled, skip error handling — cancel_query handles everything
+            if command.session_id in self._cancelled_sessions:
+                logger.info("[session=%s] 查询异常但已取消, 跳过错误处理", command.session_id)
+                return
             logger.error(
                 "[session=%s] Claude查询失败: %s",
                 command.session_id,
@@ -394,6 +416,9 @@ class SessionApplicationService:
 
         finally:
             self._claude_agent_gateway.mark_idle(command.session_id)
+            # If cancelled, cancel_query handles save and broadcast
+            if command.session_id in self._cancelled_sessions:
+                return
             # Use a fresh DB session to ensure final save succeeds even if
             # the original connection was lost during a long-running query
             try:
@@ -440,11 +465,53 @@ class SessionApplicationService:
                 },
             )
 
+            # Execute queued follow-up message if present
+            queued = self._queued_messages.pop(command.session_id, None)
+            if queued:
+                logger.info("[session=%s] 执行排队的后续消息", command.session_id)
+                safe_create_task(self.run_claude_query(queued))
+
+    # Maximum seconds to wait for the next message from the Claude stream.
+    # If no message arrives within this window AND the CLI process has died,
+    # we treat the stream as broken.  The generous timeout avoids false
+    # positives during long tool executions (e.g. large file writes).
+    _STREAM_MSG_TIMEOUT = 300  # 5 minutes
+
     async def _consume_message_stream(
         self, session: "Session", msg_stream: "AsyncIterator[dict]"
     ) -> None:
-        """Iterate over the message stream, persist messages and broadcast to WS."""
-        async for msg_dict in msg_stream:
+        """Iterate over the message stream, persist messages and broadcast to WS.
+
+        Includes a per-message timeout combined with a CLI process health
+        check so the stream never hangs indefinitely when the subprocess
+        crashes.
+        """
+        loop = asyncio.get_event_loop()
+        last_save_time = loop.time()
+        save_interval = 2.0  # save at most every 2s for cross-session visibility
+
+        aiter = msg_stream.__aiter__()
+        while True:
+            try:
+                msg_dict = await asyncio.wait_for(
+                    aiter.__anext__(), timeout=self._STREAM_MSG_TIMEOUT,
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                # Timeout waiting for next message — check if CLI is still alive
+                if not self._claude_agent_gateway.is_process_alive(session.session_id):
+                    logger.error(
+                        "[session=%s] CLI 进程已退出且消息流超时, 终止消费",
+                        session.session_id,
+                    )
+                    raise RuntimeError("Claude CLI process exited unexpectedly")
+                # Process is alive but slow (e.g. long tool execution) — keep waiting
+                logger.info(
+                    "[session=%s] 消息流等待超时但进程仍存活, 继续等待",
+                    session.session_id,
+                )
+                continue
             msg_type_str = msg_dict["message_type"]
             message = MessageConversionService.convert_stream_message(msg_dict)
             if message is None:
@@ -518,6 +585,21 @@ class SessionApplicationService:
                         new_sid,
                     )
 
+            # Periodic save: ensure reconnecting clients see recent messages.
+            # Uses the same DB session with explicit commit for visibility.
+            now = loop.time()
+            is_result = msg_type_str == "result"
+            if is_result or (now - last_save_time >= save_interval):
+                try:
+                    await self._session_repository.save(session)
+                    await self._session_repository.commit()
+                    last_save_time = now
+                except Exception:
+                    logger.warning(
+                        "[session=%s] periodic save failed",
+                        session.session_id, exc_info=True,
+                    )
+
     async def _fire_outbound(self, session_id: str, text: str) -> None:
         """Best-effort outbound IM sync — errors are logged, never raised."""
         try:
@@ -544,18 +626,25 @@ class SessionApplicationService:
         """Correct stale 'running' status when the agent is no longer connected.
 
         Loads the session, and if it is marked as running but the agent is
-        disconnected and not actively querying (e.g. after a server restart),
-        transitions it to idle. Skips correction if a query is in progress
+        disconnected (or the CLI process is dead) and not actively querying
+        (e.g. after a server restart or CLI crash), transitions it to idle.
+        Skips correction if a query is in progress
         (e.g., triggered from IM while SDK is reconnecting).
         """
         session = await self._session_repository.find_by_id(session_id)
         if session is None:
             return
-        if session.is_running and not self._claude_agent_gateway.is_connected(session_id):
+        if not session.is_running:
+            return
+        # Agent is connected AND its process is alive — don't touch
+        if (
+            self._claude_agent_gateway.is_connected(session_id)
+            and self._claude_agent_gateway.is_process_alive(session_id)
+        ):
             if self._claude_agent_gateway.is_active(session_id):
                 return
-            session.complete_query()
-            await self._session_repository.save(session)
+        session.complete_query()
+        await self._session_repository.save(session)
 
     async def prewarm_connection(self, session_id: str) -> None:
         """Pre-establish SDK connection for a session so first query is faster.
@@ -582,13 +671,24 @@ class SessionApplicationService:
             logger.warning("[session=%s] SDK 连接预热失败: %s", session_id, e)
 
     async def cancel_query(self, session_id: str) -> None:
-        """Cancel an active Claude query via SDK interrupt.
+        """Cancel an active Claude query via SDK interrupt, then rewind.
 
-        Sends an interrupt signal immediately, with a short timeout.
-        If interrupt times out, falls back to disconnect to force-stop.
-        The WS handler fires this as a background task so the UI is
-        immediately unblocked.
+        1. Marks session as cancelled (prevents retry in run_claude_query).
+        2. Clears queued messages.
+        3. Sends interrupt to SDK with 3s timeout, disconnect fallback.
+        4. Waits briefly for run_claude_query to finish.
+        5. Sends /rewind to Claude Code to undo the last turn.
+        6. Rewinds domain session (removes last user msg + responses).
+        7. Broadcasts rewind event with the original prompt.
         """
+        self._cancelled_sessions.add(session_id)
+        self.clear_queued_message(session_id)
+
+        # Step 0: Cancel any pending user response (permission/choice) so the
+        # query's can_use_tool callback stops blocking and the stream can finish.
+        await self._claude_agent_gateway.cancel_pending_response(session_id)
+
+        # Step 1: Interrupt the running query
         try:
             await asyncio.wait_for(
                 self._claude_agent_gateway.interrupt(session_id),
@@ -602,6 +702,78 @@ class SessionApplicationService:
             await self._claude_agent_gateway.disconnect(session_id)
         except RuntimeError:
             logger.info("[session=%s] cancel_query: no active connection", session_id)
+
+        # Step 2: Wait for run_claude_query to finish its finally block
+        for _ in range(20):
+            if not self._claude_agent_gateway.is_active(session_id):
+                break
+            await asyncio.sleep(0.1)
+
+        # Step 3: Send /rewind to Claude Code to undo the last turn
+        if self._claude_agent_gateway.is_connected(session_id):
+            try:
+                async for _ in self._claude_agent_gateway.send_query(session_id, "/rewind"):
+                    pass
+                logger.info("[session=%s] /rewind sent successfully", session_id)
+            except Exception as e:
+                logger.warning("[session=%s] /rewind failed: %s", session_id, e)
+
+        # Step 4: Rewind domain session
+        session = await self._session_repository.find_by_id(session_id)
+        prompt = ""
+        if session is not None:
+            try:
+                prompt = session.cancel_query()
+                await self._session_repository.save(session)
+            except ValueError:
+                # Session not in RUNNING state — already transitioned
+                # Still try to find last user message for prompt restoration
+                for msg in reversed(session.messages):
+                    if msg.message_type.value == "user":
+                        prompt = msg.content.get("text", "")
+                        break
+
+            # Broadcast rewind: full session state + messages + original prompt
+            all_messages = [
+                {"type": msg.message_type.value, "content": msg.content}
+                for msg in session.messages
+            ]
+            await self._connection_manager.broadcast(
+                session_id,
+                {
+                    "event": "cancel_rewind",
+                    "prompt": prompt,
+                    "session": self._session_to_dict(session),
+                    "messages": all_messages,
+                },
+            )
+        else:
+            # Session not found, just broadcast idle
+            await self._connection_manager.broadcast(
+                session_id,
+                {"event": "status_change", "status": "idle"},
+            )
+
+        self._cancelled_sessions.discard(session_id)
+
+    # ── Message queue (latest-wins) ───────────────────────────
+
+    def queue_message(self, session_id: str, command: RunQueryCommand) -> None:
+        """Queue a follow-up message to run after the current query finishes.
+
+        Latest-wins: only the most recent queued message per session is kept.
+        """
+        self._queued_messages[session_id] = command
+        logger.info("[session=%s] 消息已排队 (latest-wins)", session_id)
+
+    def clear_queued_message(self, session_id: str) -> None:
+        """Clear any queued message for a session (e.g. on cancel)."""
+        removed = self._queued_messages.pop(session_id, None)
+        if removed:
+            logger.info("[session=%s] 已清除排队消息", session_id)
+
+    def has_queued_message(self, session_id: str) -> bool:
+        return session_id in self._queued_messages
 
     async def disconnect_session(self, session_id: str) -> None:
         """Disconnect the SDK client for a session."""
@@ -637,6 +809,14 @@ class SessionApplicationService:
     async def resolve_user_response(self, session_id: str, response_data: dict) -> bool:
         """Resolve a pending user response (choice answer or permission decision)."""
         return await self._claude_agent_gateway.resolve_user_response(session_id, response_data)
+
+    async def commit(self) -> None:
+        """Commit the underlying DB session."""
+        await self._session_repository.commit()
+
+    async def close(self) -> None:
+        """Close the underlying DB session."""
+        await self._session_repository.close()
 
     async def import_claude_session(self, command: ImportClaudeSessionCommand) -> Session:
         """Import a Claude Code session into MySQL.
