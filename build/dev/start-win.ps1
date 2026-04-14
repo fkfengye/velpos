@@ -174,7 +174,7 @@ function do_start {
         }
 
         Start-Process -FilePath "uv" `
-            -ArgumentList "run uvicorn main:app --host 0.0.0.0 --port $backendPort --reload --log-level info" `
+            -ArgumentList "run uvicorn main:app --host 0.0.0.0 --port $backendPort --log-level info" `
             -WorkingDirectory $backendDir `
             -NoNewWindow `
             -PassThru | Out-Null

@@ -206,7 +206,6 @@ start_backend() {
     nohup uv run uvicorn main:app \
         --host 0.0.0.0 \
         --port "$BACKEND_PORT" \
-        --reload \
         --log-level info \
         > "$BACKEND_LOG" 2>&1 &
 
