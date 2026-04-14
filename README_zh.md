@@ -1,4 +1,4 @@
-<div align="center">
+clear<div align="center">
 
 # Velpos
 
@@ -30,6 +30,7 @@ Velpos（意成）是一个基于 [Claude Agent SDK](https://github.com/anthropi
   - [开发环境](#开发环境)
   - [生产环境](#生产环境)
 - [首次使用配置](#首次使用配置)
+- [故障排除](#故障排除)
 - [使用概览](#使用概览)
 - [架构概览](#架构概览)
 - [技术栈](#技术栈)
@@ -254,6 +255,44 @@ docker compose up --build -d
 </details>
 
 **4.** 创建项目、创建会话，**加载已打包的 Agent**，开始协作。
+
+<br/>
+
+## 故障排除
+
+### Git 无法连接 GitHub
+
+**症状：** `Failed to connect to github.com port 443`
+
+**原因：** 系统使用了代理软件（如 Clash、V2Ray），但 Git 未配置代理。
+
+**解决：** 配置 Git 使用本地代理端口（根据你的代理软件调整端口）：
+
+```bash
+# 假设代理软件 HTTP 端口为 7897
+git config --global http.proxy http://127.0.0.1:7897
+git config --global https.proxy http://127.0.0.1:7897
+```
+
+验证配置：
+```bash
+git config --global --get http.proxy
+curl -I --proxy http://127.0.0.1:7897 https://github.com
+```
+
+### 后端启动失败：CLAUDE_CLI_PATH 未设置
+
+**症状：** 后端日志报错 `RuntimeError: CLAUDE_CLI_PATH environment variable is not set`
+
+**原因：** Windows 上 `claude` CLI 不在 PATH 中，或 PATH 探测失败。
+
+**解决：** 在 `build/dev/.env` 中手动设置：
+
+```bash
+CLAUDE_CLI_PATH=C:/Users/你的用户名/.local/bin/claude
+```
+
+> **提示：** 在 Windows 上打开 Git Bash，输入 `which claude` 可获取 claude CLI 的完整路径。
 
 <br/>
 
