@@ -1,12 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import sys
-
-# Windows 上需要 ProactorEventLoop 才能使用 asyncio subprocess
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
 from dotenv import load_dotenv
 
 load_dotenv()
