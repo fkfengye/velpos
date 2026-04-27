@@ -1,6 +1,34 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useSettingsManager } from '../model/useSettingsManager'
+import { useUserPreferences } from '@shared/lib/useUserPreferences'
+import { useDialogManager } from '@shared/lib/useDialogManager'
+import { useGlobalHotkeys } from '@shared/lib/useGlobalHotkeys.js'
+import CustomSelect from '@shared/ui/CustomSelect.vue'
+
+const props = defineProps({
+  visible: {
+    type: Boolean,
+    required: true,
+  },
+})
+
+const emit = defineEmits(['close'])
+
+// 创建一个包装对象来管理可见性，避免直接修改 prop
+const visibleWrapper = {
+  get value() {
+    return props.visible
+  },
+  set value(newValue) {
+    if (!newValue) {
+      emit('close')
+    }
+  }
+}
+
+const { useDialog } = useDialogManager()
+useDialog('settings', visibleWrapper)
 
 const AUTH_ENV_OPTIONS = [
   { value: 'ANTHROPIC_API_KEY', label: 'ANTHROPIC_API_KEY' },
@@ -15,14 +43,18 @@ const MODEL_ENV_KEYS = [
   { key: 'ANTHROPIC_DEFAULT_SONNET_MODEL', label: 'Sonnet Model' },
 ]
 
-const props = defineProps({
-  visible: {
-    type: Boolean,
-    required: true,
+// ESC to close dialog
+useGlobalHotkeys({
+  keys: 'Escape',
+  handler: () => {
+    if (props.visible) {
+      emit('close')
+      return false
+    }
+    return true
   },
+  priority: 100
 })
-
-const emit = defineEmits(['close'])
 
 const {
   settings,
@@ -42,8 +74,16 @@ const {
   handleFetchModels,
 } = useSettingsManager()
 
+const {
+  enterBehavior,
+  enterBehaviors,
+  setEnterBehavior,
+} = useUserPreferences()
+
 const editingProfileId = ref(null)
 const showAddForm = ref(false)
+const showJsonPreview = ref(false)
+const jsonPreviewEl = ref(null)
 const addForm = ref({ name: '', host: '', api_key: '', auth_env_name: 'ANTHROPIC_API_KEY', model_config: {} })
 const editForm = ref({ name: '', host: '', api_key: '', auth_env_name: 'ANTHROPIC_API_KEY', model_config: {} })
 const settingsData = ref(null)
@@ -210,6 +250,9 @@ function onFetchModelsForEdit() {
   handleFetchModels(editingProfileId.value, editForm.value.host, editForm.value.api_key)
 }
 
+const copyJsonSuccess = ref(false)
+let copyJsonTimer = null
+
 const saveSuccess = ref(false)
 
 async function handleSave() {
@@ -232,7 +275,19 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleKeydown)
+  clearTimeout(copyJsonTimer)
 })
+
+async function copyJsonPreview() {
+  try {
+    await navigator.clipboard.writeText(jsonPreviewText.value)
+    copyJsonSuccess.value = true
+    clearTimeout(copyJsonTimer)
+    copyJsonTimer = setTimeout(() => { copyJsonSuccess.value = false }, 1500)
+  } catch (err) {
+    console.error('Failed to copy JSON:', err)
+  }
+}
 </script>
 
 <template>
@@ -281,9 +336,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="form-group">
                   <label class="form-label">Auth Env Variable</label>
-                  <select class="form-select" v-model="addForm.auth_env_name">
-                    <option v-for="opt in AUTH_ENV_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                  </select>
+                  <CustomSelect v-model="addForm.auth_env_name" :options="AUTH_ENV_OPTIONS" />
                 </div>
               </div>
 
@@ -384,9 +437,7 @@ onBeforeUnmount(() => {
                       </div>
                       <div class="form-group">
                         <label class="form-label">Auth Env Variable</label>
-                        <select class="form-select" v-model="editForm.auth_env_name">
-                          <option v-for="opt in AUTH_ENV_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                        </select>
+                        <CustomSelect v-model="editForm.auth_env_name" :options="AUTH_ENV_OPTIONS" />
                       </div>
                     </div>
 
@@ -449,19 +500,36 @@ onBeforeUnmount(() => {
 
           <!-- Section 2: Settings Configuration -->
           <div class="section">
-            <h3 class="section-title">Settings Configuration</h3>
+            <div class="section-header">
+              <h3 class="section-title">Settings Configuration</h3>
+              <button class="btn-preview" :class="{ active: showJsonPreview }" @click="showJsonPreview = !showJsonPreview" title="Toggle JSON Preview">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+            <Transition name="preview-slide">
+              <div v-if="showJsonPreview" class="json-preview-wrapper">
+                <button class="json-copy-btn" :class="{ copied: copyJsonSuccess }" @click="copyJsonPreview" title="Copy JSON">
+                  <svg v-if="!copyJsonSuccess" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                </button>
+                <pre class="json-preview">{{ jsonPreviewText }}</pre>
+              </div>
+            </Transition>
             <div class="settings-card" v-if="settingsData">
               <div class="field-row">
                 <div class="field-info">
                   <label class="field-label">Permission Mode</label>
                   <span class="field-desc">Controls tool approval policy: default prompts each time, bypass auto-allows all</span>
                 </div>
-                <select class="form-select form-select--compact" v-model="defaultMode">
-                  <option value="default">Default</option>
-                  <option value="acceptEdits">Accept Edits</option>
-                  <option value="plan">Plan</option>
-                  <option value="bypassPermissions">Bypass</option>
-                </select>
+                <CustomSelect v-model="defaultMode" :options="[{ value: 'default', label: 'Default' }, { value: 'acceptEdits', label: 'Accept Edits' }, { value: 'plan', label: 'Plan' }, { value: 'bypassPermissions', label: 'Bypass' }]" />
               </div>
               <div class="field-row">
                 <div class="field-info">
@@ -478,12 +546,7 @@ onBeforeUnmount(() => {
                   <label class="field-label">Effort Level</label>
                   <span class="field-desc">Reasoning effort: low is fast/cheap, high is thorough</span>
                 </div>
-                <select class="form-select form-select--compact" v-model="effortLevel">
-                  <option value="">-- Default --</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
+                <CustomSelect v-model="effortLevel" :options="[{ value: '', label: 'Default' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]" />
               </div>
               <div class="field-row">
                 <div class="field-info">
@@ -542,10 +605,18 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- Section 3: JSON Preview -->
+          <!-- Section 3: User Preferences -->
           <div class="section">
-            <h3 class="section-title">JSON Preview</h3>
-            <pre class="json-preview">{{ jsonPreviewText }}</pre>
+            <h3 class="section-title">User Preferences</h3>
+            <div class="settings-card">
+              <div class="field-row">
+                <div class="field-info">
+                  <label class="field-label">Enter Key Behavior</label>
+                  <span class="field-desc">Choose how Enter and Ctrl+Enter keys behave in the chat input</span>
+                </div>
+                <CustomSelect :model-value="enterBehavior" @update:model-value="setEnterBehavior" :options="[{ value: 'enter-send', label: 'Enter to send, Ctrl+Enter for new line' }, { value: 'ctrl-enter-send', label: 'Ctrl+Enter to send, Enter for new line' }]" :display-map="{ 'enter-send': 'Enter to send', 'ctrl-enter-send': 'Ctrl+Enter to send' }" />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -686,6 +757,49 @@ onBeforeUnmount(() => {
 
 .section-header .section-title {
   margin: 0;
+}
+
+.btn-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-preview:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.btn-preview.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.preview-slide-enter-active {
+  transition: max-height 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms cubic-bezier(0.4, 0, 0.2, 1), margin 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+.preview-slide-leave-active {
+  transition: max-height 200ms cubic-bezier(0.4, 0, 0.2, 1), opacity 150ms cubic-bezier(0.4, 0, 0.2, 1), margin 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+.preview-slide-enter-from,
+.preview-slide-leave-to {
+  max-height: 0;
+  opacity: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .channel-list {
@@ -1151,19 +1265,61 @@ onBeforeUnmount(() => {
   color: var(--text-secondary);
 }
 
+.json-preview-wrapper {
+  position: relative;
+  margin: 0 0 16px;
+}
+
 .json-preview {
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 12px 16px;
+  margin: 0;
   font-family: var(--font-mono);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
   font-size: 12px;
   line-height: 1.5;
   max-height: 200px;
   overflow-y: auto;
   white-space: pre-wrap;
   color: var(--text-secondary);
-  margin: 0;
+}
+
+.json-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+  z-index: 1;
+}
+
+.json-preview-wrapper:hover .json-copy-btn {
+  opacity: 1;
+}
+
+.json-copy-btn:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.json-copy-btn.copied {
+  color: var(--green);
+  border-color: var(--green);
 }
 
 .dialog-footer {

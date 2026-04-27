@@ -1,5 +1,7 @@
 <script setup>
 import { ref, computed, inject, onMounted, onUnmounted, watch } from 'vue'
+import { useGlobalHotkeys } from '@shared/lib/useGlobalHotkeys'
+import { useDialogManager } from '@shared/lib/useDialogManager'
 import { useSession, listModels } from '@entities/session'
 import { useProject, getGitBranches, checkoutGitBranch } from '@entities/project'
 import { MessageInput, useSendMessage } from '@features/send-message'
@@ -17,7 +19,7 @@ import { useCompactContext } from '@features/compact-context'
 import { useSessionStats } from '@features/send-message/model/useSessionStats'
 import { TaskProgressPanel, useTaskProgress } from '@features/task-progress'
 
-const { session, messages, status, queued, currentSessionId, queryHistory, setCurrentSessionId, updateSession } = useSession()
+const { session, messages, status, queued, currentSessionId, queryHistory, setCurrentSessionId, updateSession, setError } = useSession()
 const { projects, updateProjectInList } = useProject()
 
 const wsConnection = inject('wsConnection')
@@ -82,7 +84,16 @@ const memoryDialogVisible = ref(false)
 const imDialogVisible = ref(false)
 const { isBoundForSession, hasChannels, boundChannelType, boundInstanceName, fetchChannels: fetchImChannels, fetchStatus: fetchImStatus } = useImBinding()
 
-// Compact context
+// 使用全局弹窗管理器
+const { useDialog } = useDialogManager()
+
+// 注册所有弹窗到全局管理器
+useDialog('plugin-manager', pluginDialogVisible)
+useDialog('agent-manager', agentDialogVisible)
+useDialog('memory-manager', memoryDialogVisible)
+useDialog('im-binding', imDialogVisible)
+useDialog('command-palette', cmdVisible)
+
 const { compacting, compactContext } = useCompactContext()
 
 onMounted(async () => {
@@ -103,7 +114,68 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('vp-cancel-rewind', handleCancelRewind)
+  window.removeEventListener('vp-dialog-open', handleDialogOpen)
+  window.removeEventListener('vp-debug-toggle', handleDebugToggle)
+  window.removeEventListener('vp-voice-toggle', handleVoiceToggle)
+  window.removeEventListener('vp-camera-toggle', handleCameraToggle)
+  window.removeEventListener('vp-clear-context', handleClearContext)
 })
+
+// 监听全局快捷键触发的弹窗打开事件
+function handleDialogOpen(e) {
+  const dialog = e.detail?.dialog
+  switch (dialog) {
+    case 'agent-manager':
+      agentDialogVisible.value = true
+      break
+    case 'plugin-manager':
+      pluginDialogVisible.value = true
+      break
+    case 'memory-manager':
+      memoryDialogVisible.value = true
+      break
+    case 'command-palette':
+      cmdVisible.value = true
+      break
+    case 'history':
+      showHistory.value = true
+      break
+    case 'im-binding':
+      imDialogVisible.value = true
+      break
+  }
+}
+
+// 监听 debug 模式切换
+function handleDebugToggle(e) {
+  debugMode.value = e.detail?.enabled ?? false
+}
+
+// 监听 voice 切换（需要让 VoiceInputButton 组件处理）
+function handleVoiceToggle() {
+  window.dispatchEvent(new CustomEvent('vp-voice-toggle-global'))
+}
+
+// 监听 camera 切换（需要让 VideoInputButton 组件处理）
+function handleCameraToggle() {
+  window.dispatchEvent(new CustomEvent('vp-camera-toggle-global'))
+}
+
+// 监听 clear context
+function handleClearContext() {
+  if (!currentSessionId.value) {
+    setError('No active session to clear context')
+    return
+  }
+  compactContext(currentSessionId.value)
+}
+
+// 注册全局事件监听
+window.addEventListener('vp-dialog-open', handleDialogOpen)
+window.addEventListener('vp-debug-toggle', handleDebugToggle)
+window.addEventListener('vp-voice-toggle', handleVoiceToggle)
+window.addEventListener('vp-camera-toggle', handleCameraToggle)
+window.addEventListener('vp-clear-context', handleClearContext)
 
 function handleCancelRewind(e) {
   const prompt = e.detail?.prompt || ''
@@ -137,6 +209,7 @@ function handleImPrompt(prompt) {
 
 // History popover
 const showHistory = ref(false)
+useDialog('history', showHistory)
 
 function formatDuration(ms) {
   if (!ms) return '-'
@@ -205,6 +278,16 @@ function getPermLabel(value) {
   return found ? found.label : value
 }
 
+// Get color class for permission mode (matching CC CLI colors)
+function getPermColorClass(value) {
+  switch (value) {
+    case 'acceptEdits': return 'perm-purple'
+    case 'plan': return 'perm-green'
+    case 'bypassPermissions': return 'perm-red'
+    default: return 'perm-gray'
+  }
+}
+
 function handlePermSelect(mode) {
   showPermMenu.value = false
   currentPermMode.value = mode
@@ -212,6 +295,55 @@ function handlePermSelect(mode) {
     wsConnection.value.send({ action: 'set_permission_mode', mode })
   }
 }
+
+// Cycle through permission modes with Shift+Tab
+function cyclePermissionMode() {
+  const currentIndex = permModes.findIndex(m => m.value === currentPermMode.value)
+  const nextIndex = (currentIndex + 1) % permModes.length
+  const nextMode = permModes[nextIndex].value
+  handlePermSelect(nextMode)
+}
+
+// Global shortcut for cycling permission modes
+useGlobalHotkeys({
+  keys: 'Shift+Tab',
+  handler: (event) => {
+    cyclePermissionMode()
+    return false // Prevent default behavior
+  },
+  priority: 50
+})
+
+// ESC to close panels/popovers
+useGlobalHotkeys({
+  keys: 'Escape',
+  handler: (event) => {
+    // 关闭所有打开的面板和菜单
+    if (showHistory.value) {
+      showHistory.value = false
+      return false
+    }
+    if (showModelMenu.value) {
+      showModelMenu.value = false
+      return false
+    }
+    if (showPermMenu.value) {
+      showPermMenu.value = false
+      return false
+    }
+    if (showBranchMenu.value) {
+      showBranchMenu.value = false
+      return false
+    }
+    if (showProjectCopyMenu.value) {
+      showProjectCopyMenu.value = false
+      return false
+    }
+    // 让事件继续传播，可能需要关闭其他弹窗或取消查询
+    return true
+  },
+  priority: 10 // 高于全局拦截器的优先级
+})
 
 // Git branch switching
 const showBranchMenu = ref(false)
@@ -405,6 +537,8 @@ function formatMaxTokens(n) {
       />
       <!-- Toolbar above input -->
       <div class="input-toolbar">
+        <!-- Group 1: Debug -->
+        <div class="toolbar-group">
         <button
           class="toolbar-btn"
           :class="{ 'toolbar-btn--active': debugMode }"
@@ -422,7 +556,9 @@ function formatMaxTokens(n) {
           </svg>
           <span class="toolbar-btn-label">Debug</span>
         </button>
-        <!-- Agent button -->
+        </div>
+        <!-- Group 2: Configuration -->
+        <div class="toolbar-group">
         <button
           class="toolbar-btn"
           :class="{ 'toolbar-btn--active': currentAgentInfo }"
@@ -438,7 +574,6 @@ function formatMaxTokens(n) {
           </svg>
           <span class="toolbar-btn-label">{{ currentAgentInfo ? currentAgentInfo.id : 'Agent' }}</span>
         </button>
-        <!-- Plugin management button -->
         <button
           class="toolbar-btn"
           :disabled="!currentSessionId"
@@ -463,6 +598,9 @@ function formatMaxTokens(n) {
           :disabled="!currentSessionId || !projectDir"
           @click="memoryDialogVisible = true"
         />
+        </div>
+        <!-- Group 3: Actions -->
+        <div class="toolbar-group">
         <VoiceInputButton :disabled="isRunning" @text="(t) => messageInputRef?.appendText(t)" />
         <VideoInputButton :disabled="isRunning" @capture="(f) => messageInputRef?.addImage(f.data, f.media_type)" />
         <CommandPaletteButton
@@ -489,6 +627,7 @@ function formatMaxTokens(n) {
             <span class="toolbar-btn-label">History</span>
             <span v-if="queryHistory.length" class="toolbar-badge">{{ queryHistory.length }}</span>
           </button>
+          <Transition name="dropdown-fade">
           <div v-if="showHistory" class="history-panel">
             <div class="history-header">
               <span class="history-title">Query History</span>
@@ -517,6 +656,7 @@ function formatMaxTokens(n) {
               </div>
             </div>
           </div>
+          </Transition>
         </div>
         <ImButton
           v-if="hasChannels"
@@ -526,6 +666,7 @@ function formatMaxTokens(n) {
           :instance-name="boundInstanceName"
           @click="imDialogVisible = true"
         />
+        </div>
       </div>
       <div class="input-row">
         <MessageInput ref="messageInputRef" :running="isRunning" @send="handleSend" />
@@ -573,6 +714,7 @@ function formatMaxTokens(n) {
               </svg>
               {{ copiedChip === 'project' ? 'Copied!' : projectDirName }}
             </button>
+            <Transition name="dropdown-fade">
             <div v-if="showProjectCopyMenu" class="dropdown-menu">
               <button class="dropdown-item" @click="openProjectDir">
                 Open directory
@@ -584,6 +726,7 @@ function formatMaxTokens(n) {
                 Copy project name
               </button>
             </div>
+            </Transition>
           </div>
           <button
             class="dash-chip dash-session-id"
@@ -610,6 +753,7 @@ function formatMaxTokens(n) {
               </svg>
               {{ getModelLabel(currentModel) }}
             </button>
+            <Transition name="dropdown-fade">
             <div v-if="showModelMenu" class="dropdown-menu model-menu">
               <button
                 v-for="m in availableModels"
@@ -624,6 +768,7 @@ function formatMaxTokens(n) {
               </button>
               <div v-if="!availableModels.length" class="dropdown-empty">No models available</div>
             </div>
+            </Transition>
           </div>
           <div class="dropdown-wrapper" @click.stop>
             <button
@@ -640,8 +785,9 @@ function formatMaxTokens(n) {
               </svg>
               {{ branchCurrent || gitBranch || 'branch' }}
             </button>
+            <Transition name="dropdown-fade">
             <div v-if="showBranchMenu" class="dropdown-menu branch-menu">
-              <div v-if="branchLoading" class="dropdown-empty">Loading…</div>
+              <div v-if="branchLoading" class="dropdown-empty">Loading...</div>
               <div v-else-if="!branchList.length" class="dropdown-empty">No branches</div>
               <template v-else>
                 <button
@@ -655,10 +801,12 @@ function formatMaxTokens(n) {
                 </button>
               </template>
             </div>
+            </Transition>
           </div>
           <div class="dropdown-wrapper" @click.stop>
             <button
               class="dash-chip dash-perm"
+              :class="[getPermColorClass(currentPermMode)]"
               :disabled="!currentSessionId"
               @click="showPermMenu = !showPermMenu; showModelMenu = false; showHistory = false"
               title="Permission mode"
@@ -668,17 +816,19 @@ function formatMaxTokens(n) {
               </svg>
               {{ getPermLabel(currentPermMode) }}
             </button>
+            <Transition name="dropdown-fade">
             <div v-if="showPermMenu" class="dropdown-menu">
               <button
                 v-for="pm in permModes"
                 :key="pm.value"
                 class="dropdown-item"
-                :class="{ active: pm.value === currentPermMode }"
+                :class="[getPermColorClass(pm.value), { active: pm.value === currentPermMode }]"
                 @click="handlePermSelect(pm.value)"
               >
                 {{ pm.label }}
               </button>
             </div>
+            </Transition>
           </div>
           <span class="dash-chip dash-tools" v-if="totalToolCalls > 0" :title="toolStats.map(t => t.name + ': ' + t.count).join(', ')">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -779,8 +929,20 @@ function formatMaxTokens(n) {
 .input-toolbar {
   display: flex;
   align-items: center;
+  gap: 0;
+  padding: 12px 16px 0;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 6px 16px 0;
+}
+
+.toolbar-group + .toolbar-group {
+  padding-left: 6px;
+  margin-left: 6px;
+  border-left: 1px solid var(--border-subtle);
 }
 
 .toolbar-btn {
@@ -812,6 +974,11 @@ function formatMaxTokens(n) {
 .toolbar-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.toolbar-btn:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 100ms;
 }
 
 .toolbar-btn--active {
@@ -868,14 +1035,18 @@ function formatMaxTokens(n) {
 }
 
 .dropdown-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  filter: brightness(1.15);
 }
 
 .dropdown-item.active {
-  color: var(--accent);
-  background: var(--accent-dim);
+  font-weight: 600;
 }
+
+/* When active, use the permission color background */
+.dropdown-item.perm-purple.active { background: var(--purple-dim); }
+.dropdown-item.perm-green.active { background: var(--green-dim); }
+.dropdown-item.perm-red.active { background: var(--red-dim); }
+.dropdown-item.perm-gray.active { background: var(--bg-tertiary); }
 
 .model-menu {
   min-width: 260px;
@@ -914,6 +1085,10 @@ function formatMaxTokens(n) {
   background: var(--bg-secondary);
   flex-shrink: 0;
   transition: background var(--transition-base), border-color var(--transition-base);
+}
+
+.input-row {
+  padding-top: 8px;
 }
 
 /* History panel */
@@ -1127,7 +1302,7 @@ function formatMaxTokens(n) {
   font-family: var(--font-mono);
   color: var(--text-muted);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   border: none;
   cursor: default;
@@ -1142,6 +1317,11 @@ button.dash-chip {
 
 button.dash-chip:hover:not([disabled]) {
   filter: brightness(1.2);
+}
+
+button.dash-chip:active:not([disabled]) {
+  transform: scale(0.96);
+  transition-duration: 100ms;
 }
 
 button.dash-chip[disabled] {
@@ -1180,8 +1360,32 @@ button.dash-chip[disabled] {
 }
 
 .dash-perm {
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+/* Permission mode colors - matching CC CLI */
+.dash-perm.perm-purple,
+.dropdown-item.perm-purple {
+  color: var(--purple);
+  background: var(--purple-dim);
+}
+
+.dash-perm.perm-green,
+.dropdown-item.perm-green {
   color: var(--green);
   background: var(--green-dim);
+}
+
+.dash-perm.perm-red,
+.dropdown-item.perm-red {
+  color: var(--red);
+  background: var(--red-dim);
+}
+
+.dash-perm.perm-gray,
+.dropdown-item.perm-gray {
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
 }
 
 .dash-tools {

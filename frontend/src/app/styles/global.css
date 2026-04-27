@@ -54,6 +54,8 @@
   /* Scrollbar */
   --scrollbar-thumb: #3e4451;
   --scrollbar-thumb-hover: #4b5263;
+  /* Pressed / active states */
+  --accent-pressed: #4fa0e8;
 }
 
 /* --- Light Theme — Professional warm accent, WCAG AA+ contrast --- */
@@ -95,6 +97,7 @@
   --ring: 0 0 0 3px var(--ring-color);
   --scrollbar-thumb: #b4b4bb;
   --scrollbar-thumb-hover: #9898a0;
+  --accent-pressed: #c45a00;
 }
 
 /* --- Sepia / Eye-care Theme — Kindle Paperwhite paper-like --- */
@@ -136,6 +139,7 @@
   --ring: 0 0 0 3px var(--ring-color);
   --scrollbar-thumb: #CEC5B3;
   --scrollbar-thumb-hover: #B8AE9A;
+  --accent-pressed: #7A5C10;
 }
 
 /* ===================================================================
@@ -174,6 +178,26 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   transition: background var(--transition-base), color var(--transition-base);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* Allow text selection and text cursor only in explicit text areas */
+input,
+textarea,
+[contenteditable="true"],
+.markdown-body {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+/* Code blocks should also be selectable */
+pre,
+code {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 #app {
@@ -247,6 +271,10 @@ code {
 
 .code-block-wrapper pre {
   margin: 0;
+}
+
+.code-lang ~ pre {
+  padding-top: 24px;
 }
 
 .code-lang {
@@ -334,10 +362,36 @@ code {
   color: var(--accent);
   text-decoration: none;
   transition: color var(--transition-fast);
+  position: relative;
+  display: inline;
 }
 .markdown-body a:hover {
   text-decoration: underline;
   color: var(--accent-hover);
+}
+
+/* External link icon for links that open in new tab */
+.markdown-body a[target="_blank"]::after {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 3px;
+  margin-bottom: 2px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/%3E%3Cpolyline points='15 3 21 3 21 9'/%3E%3Cline x1='10' y1='14' x2='21' y2='3'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  opacity: 0.6;
+  transition: opacity var(--transition-fast);
+}
+
+.markdown-body a[target="_blank"]:hover::after {
+  opacity: 1;
+}
+
+/* Auto-linked URLs (standalone URLs in text) */
+.markdown-body a.auto-link {
+  word-break: break-all;
 }
 
 .markdown-body blockquote {
@@ -424,6 +478,25 @@ textarea:focus-visible {
 
 .file-path-link:hover {
   opacity: 0.8;
+}
+
+/* Remove external link icon from file path links (they're internal) */
+.markdown-body a.file-path-link::after {
+  display: none;
+}
+
+/* ===================================================================
+   DROPDOWN TRANSITIONS — Vue <Transition name="dropdown-fade">
+   =================================================================== */
+.dropdown-fade-enter-active,
+.dropdown-fade-leave-active {
+  transition: opacity 150ms var(--ease-smooth), transform 150ms var(--ease-out);
+}
+
+.dropdown-fade-enter-from,
+.dropdown-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px) scale(0.98);
 }
 
 /* ===================================================================

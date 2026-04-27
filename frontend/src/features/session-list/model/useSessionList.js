@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useSession } from '@entities/session'
 import { useProject } from '@entities/project'
 import {
@@ -29,7 +29,7 @@ export function useSessionList() {
     addSession,
     removeSession,
     updateSessionInList,
-    reset,
+    removeState,
   } = useSession()
 
   const {
@@ -103,13 +103,42 @@ export function useSessionList() {
     }
   }
 
-  async function handleCreate({ name, githubUrl }) {
-    // Create a new project, which creates the project directory
+  async function handleCreate(payload) {
+    if (payload?.mode === 'local') {
+      const dirPath = payload.dirPath?.trim()
+      if (!dirPath) return
+
+      const ensured = await ensureProjectsByDirs([dirPath])
+      const projectId = ensured.mappings?.[dirPath]
+      if (!projectId) {
+        throw new Error('Failed to create project from local path')
+      }
+
+      const projectsData = await listProjects()
+      setProjects(projectsData.projects || [])
+      const project = (projectsData.projects || []).find(p => p.id === projectId)
+      if (!project) {
+        throw new Error('Created project not found after refresh')
+      }
+
+      const session = await createSession({
+        projectId: project.id,
+        projectDir: project.dir_path || dirPath,
+      })
+      addSession({ ...session, source: 'velpos' })
+      setCurrentProjectId(project.id)
+      switchSession(session.session_id)
+      return
+    }
+
+    const { name, githubUrl } = payload
     const project = await createProject(name, githubUrl || '')
     addProject(project)
 
-    // Create a session in the new project
-    const session = await createSession({ projectId: project.id })
+    const session = await createSession({
+      projectId: project.id,
+      projectDir: project.dir_path || '',
+    })
     addSession({ ...session, source: 'velpos' })
     setCurrentProjectId(project.id)
     switchSession(session.session_id)
@@ -132,7 +161,7 @@ export function useSessionList() {
         switchSession(first.session_id)
       } else {
         setCurrentSessionId(null)
-        reset()
+        removeState(sessionId)
         localStorage.removeItem(LAST_SESSION_ID_KEY)
       }
     }
@@ -175,7 +204,7 @@ export function useSessionList() {
         switchSession(remaining.session_id)
       } else {
         setCurrentSessionId(null)
-        reset()
+        removeState(currentSessionId.value)
         localStorage.removeItem(LAST_SESSION_ID_KEY)
       }
     }
@@ -212,7 +241,9 @@ export function useSessionList() {
         switchSession(remaining.session_id)
       } else {
         setCurrentSessionId(null)
-        reset()
+        for (const s of projectSessions) {
+          removeState(s.session_id)
+        }
         localStorage.removeItem(LAST_SESSION_ID_KEY)
       }
     }
@@ -280,6 +311,13 @@ export function useSessionList() {
       if (vpSession.project_id) {
         setCurrentProjectId(vpSession.project_id)
       }
+
+      // Trigger event to scroll to the new session position
+      nextTick(() => {
+        window.dispatchEvent(new CustomEvent('vp-session-imported', {
+          detail: { sessionId: vpSession.session_id }
+        }))
+      })
     } finally {
       importing.value = false
     }

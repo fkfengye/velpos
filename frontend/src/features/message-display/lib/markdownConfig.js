@@ -5,6 +5,7 @@ const renderer = new marked.Renderer()
 const originalLinkRenderer = renderer.link.bind(renderer)
 renderer.link = function (token) {
   const html = originalLinkRenderer(token)
+  // Ensure all links open in new tab with security attributes
   return html.replace(/^<a /, '<a target="_blank" rel="noopener noreferrer" ')
 }
 
@@ -43,11 +44,41 @@ const filePathExtension = {
   },
   renderer(token) {
     const escaped = escapeHtml(token.path)
-    return `<a class="file-path-link" data-file-path="${escaped}" href="#" title="Click to open">${escaped}</a>`
+    // File path links are internal, don't add external icon
+    return `<a class="file-path-link" data-file-path="${escaped}" href="javascript:void(0)" title="Click to open">${escaped}</a>`
   },
 }
 
-marked.use({ extensions: [filePathExtension] })
+// URL extension: auto-link URLs in text that aren't already in markdown links
+const urlExtension = {
+  name: 'url',
+  level: 'inline',
+  start(src) {
+    // Look for http:// or https:// at start of line or after whitespace/punctuation
+    const match = src.match(/(?:^|[\s(])(?=https?:\/\/)/)
+    return match ? match.index + (match[0].length - match[0].trimStart().length) : -1
+  },
+  tokenizer(src) {
+    // Match URLs but not if they're already part of markdown syntax
+    // Don't match if preceded by ] (which would indicate a markdown link)
+    if (src.match(/^\]/)) return null
+
+    const match = src.match(/^(https?:\/\/[^\s<>"{}|\\^`\[\]]+)/)
+    if (match) {
+      return {
+        type: 'url',
+        raw: match[0],
+        url: match[1],
+      }
+    }
+  },
+  renderer(token) {
+    const escaped = escapeHtml(token.url)
+    return `<a href="${escaped}" target="_blank" rel="noopener noreferrer" class="auto-link">${escaped}</a>`
+  },
+}
+
+marked.use({ extensions: [filePathExtension, urlExtension] })
 
 marked.setOptions({
   breaks: true,
@@ -55,6 +86,35 @@ marked.setOptions({
   renderer,
 })
 
+// Configure DOMPurify to allow safe attributes for links
+DOMPurify.addHook('uponSanitizeAttribute', function (node, data) {
+  // Force target="_blank" for all links
+  if (node.tagName === 'A' && data.attrName === 'target') {
+    node.setAttribute('target', '_blank')
+  }
+  // Force rel="noopener noreferrer" for security
+  if (node.tagName === 'A' && data.attrName === 'rel') {
+    node.setAttribute('rel', 'noopener noreferrer')
+  }
+})
+
+// Ensure all links have target="_blank" and rel="noopener noreferrer" after sanitization
+DOMPurify.addHook('afterSanitizeAttributes', function (node) {
+  if (node.tagName === 'A') {
+    // Set target="_blank" if not present
+    if (!node.getAttribute('target')) {
+      node.setAttribute('target', '_blank')
+    }
+    // Set rel="noopener noreferrer" for security
+    if (!node.getAttribute('rel')) {
+      node.setAttribute('rel', 'noopener noreferrer')
+    }
+  }
+})
+
 export function configuredMarked(text) {
-  return DOMPurify.sanitize(marked.parse(text))
+  return DOMPurify.sanitize(marked.parse(text), {
+    ALLOWED_ATTR: ['target', 'rel', 'href', 'class', 'data-file-path', 'title'],
+    ALLOW_DATA_ATTR: true
+  })
 }

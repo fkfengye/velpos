@@ -1,5 +1,6 @@
 <script setup>
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, computed } from 'vue'
+import { useUserPreferences } from '@shared/lib/useUserPreferences'
 
 const props = defineProps({
   disabled: {
@@ -14,7 +15,28 @@ const props = defineProps({
 
 const emit = defineEmits(['send'])
 
+const { shouldEnterSend, shouldCtrlEnterSend } = useUserPreferences()
+
 const input = ref('')
+const isComposing = ref(false)
+const compositionEndedRecently = ref(false)
+
+// 动态生成placeholder文本
+const placeholderText = computed(() => {
+  if (props.disabled) return 'Waiting for Claude to finish...'
+  if (props.running) return 'Send follow-up (queued until Claude finishes)...'
+
+  const sendShortcut = shouldEnterSend() ? 'Enter' : 'Ctrl+Enter'
+  const newLineShortcut = shouldEnterSend() ? 'Ctrl+Enter' : 'Enter'
+
+  return `Send a message... (${sendShortcut} to send, ${newLineShortcut} for new line, paste images with Ctrl+V)`
+})
+
+// 动态生成发送按钮的提示文本
+const sendButtonTitle = computed(() => {
+  const sendShortcut = shouldEnterSend() ? 'Enter' : 'Ctrl+Enter'
+  return `Send message (${sendShortcut})`
+})
 const inputEl = ref(null)
 const pendingImages = ref([]) // [{ data: base64, media_type: 'image/png', preview: dataUrl }]
 
@@ -50,10 +72,55 @@ function handleSend() {
   })
 }
 
+function handleCompositionStart() {
+  isComposing.value = true
+}
+
+function handleCompositionEnd() {
+  isComposing.value = false
+  // 标记最近刚结束输入法，避免keydown事件立即触发
+  compositionEndedRecently.value = true
+  // 50ms后清除标记，给keydown事件足够的时间窗口
+  setTimeout(() => {
+    compositionEndedRecently.value = false
+  }, 50)
+}
+
 function handleKeydown(e) {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault()
-    handleSend()
+  if (e.key === 'Enter') {
+    // During IME composition or just after composition, defer all Enter handling to browser default
+    if (isComposing.value || compositionEndedRecently.value) {
+      return
+    }
+
+    const hasCtrl = e.ctrlKey
+    const hasCmd = e.metaKey
+    const hasModifier = hasCtrl || hasCmd
+
+    // 根据用户偏好决定行为
+    if (shouldEnterSend() && !hasModifier) {
+      // 模式1：Enter发送，Ctrl/Cmd+Enter换行
+      // 只有单独按Enter时才发送
+      e.preventDefault()
+      handleSend()
+    } else if (shouldCtrlEnterSend() && hasModifier) {
+      // 模式2：Ctrl/Cmd+Enter发送，Enter换行
+      // 只有按Ctrl/Cmd+Enter时才发送
+      e.preventDefault()
+      handleSend()
+    } else if (hasModifier) {
+      // Ctrl/Cmd+Enter 但当前模式不要求发送 -> 手动插入换行
+      e.preventDefault()
+      const start = inputEl.value.selectionStart
+      const end = inputEl.value.selectionEnd
+      const value = input.value
+      input.value = value.slice(0, start) + '\n' + value.slice(end)
+      nextTick(() => {
+        inputEl.value.selectionStart = inputEl.value.selectionEnd = start + 1
+        autoResize()
+      })
+    }
+    // 其他情况：让浏览器默认处理（单独Enter在非enter-send模式下）
   }
 }
 
@@ -126,11 +193,21 @@ function appendText(text) {
   })
 }
 
+function handleAreaClick(e) {
+  // If clicking on the input area (but not on the send button or image remove buttons), focus the input
+  const isSendBtn = e.target.closest('.send-btn')
+  const isRemoveBtn = e.target.closest('.image-remove')
+
+  if (!isSendBtn && !isRemoveBtn && !props.disabled) {
+    inputEl.value?.focus()
+  }
+}
+
 defineExpose({ setInput, addImage, appendText })
 </script>
 
 <template>
-  <div class="input-area" @drop="handleDrop" @dragover="handleDragover">
+  <div class="input-area" @drop="handleDrop" @dragover="handleDragover" @click="handleAreaClick">
     <!-- Image previews -->
     <div v-if="pendingImages.length > 0" class="image-previews">
       <div v-for="(img, i) in pendingImages" :key="i" class="image-thumb">
@@ -146,8 +223,10 @@ defineExpose({ setInput, addImage, appendText })
       ref="inputEl"
       v-model="input"
       @keydown="handleKeydown"
+      @compositionstart="handleCompositionStart"
+      @compositionend="handleCompositionEnd"
       @paste="handlePaste"
-      :placeholder="disabled ? 'Waiting for Claude to finish...' : running ? 'Send follow-up (queued until Claude finishes)...' : 'Send a message... (Ctrl+Enter to send, paste images with Ctrl+V)'"
+      :placeholder="placeholderText"
       :disabled="disabled"
       rows="1"
       class="input-field"
@@ -159,6 +238,7 @@ defineExpose({ setInput, addImage, appendText })
     <button
       class="send-btn"
       :disabled="(!input.trim() && pendingImages.length === 0) || disabled"
+      :title="sendButtonTitle"
       @click="handleSend"
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -181,7 +261,14 @@ defineExpose({ setInput, addImage, appendText })
   margin: 0 16px;
   transition:
     border-color var(--transition-fast),
-    background var(--transition-base);
+    background var(--transition-base),
+    box-shadow var(--transition-fast);
+  cursor: text;
+}
+
+.input-area:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .image-previews {
@@ -198,6 +285,7 @@ defineExpose({ setInput, addImage, appendText })
   border-radius: var(--radius-sm);
   overflow: hidden;
   border: 1px solid var(--border);
+  cursor: default;
 }
 
 .image-thumb img {
@@ -253,6 +341,13 @@ defineExpose({ setInput, addImage, appendText })
   cursor: not-allowed;
 }
 
+.input-field::placeholder {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
 .send-btn {
   display: flex;
   align-items: center;
@@ -271,6 +366,7 @@ defineExpose({ setInput, addImage, appendText })
   flex-shrink: 0;
   box-shadow: var(--shadow-sm);
   align-self: flex-end;
+  cursor: pointer;
 }
 
 .send-btn:hover:not(:disabled) {
@@ -285,7 +381,7 @@ defineExpose({ setInput, addImage, appendText })
 }
 
 .send-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 </style>
